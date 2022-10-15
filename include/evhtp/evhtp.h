@@ -305,7 +305,13 @@ struct evhtp {
 
 #ifndef EVHTP_DISABLE_SSL
     evhtp_ssl_ctx_t * ssl_ctx;  /**< if ssl enabled, this is the servers CTX */
-    evhtp_ssl_cfg_t * ssl_cfg;
+    /* Only these are being used from the ssl_cfg */
+    struct {
+        long                    scache_timeout;
+        evhtp_ssl_scache_del    scache_del;
+        evhtp_ssl_scache_add    scache_add;
+        evhtp_ssl_scache_get    scache_get;
+    } ssl_cfg;
 #endif
 
 #ifndef EVHTP_DISABLE_EVTHR
@@ -499,13 +505,24 @@ struct evhtp_hooks {
 
 #ifndef EVHTP_DISABLE_SSL
 struct evhtp_ssl_cfg {
+    /* One has to be non-null. Only set one */
+    X509                  * memcert;
     char                  * pemfile;
+
+    /* If privkey is set, it will be used */
+    EVP_PKEY              * memprivkey;
     char                  * privfile;
+
+    /* Other CA's to send */
+    STACK_OF(X509)        * memca;
+
     char                  * cafile;
     char                  * capath;
     char                  * ciphers;
     char                  * named_curve;
     char                  * dhparams;
+    int                     min_proto_version;
+    int                     max_proto_version;
     long                    ssl_opts;
     long                    ssl_ctx_timeout;
     int                     verify_peer;

@@ -2913,16 +2913,14 @@ static void
 htp__ssl_delete_scache_ent_(evhtp_ssl_ctx_t * ctx, evhtp_ssl_sess_t * sess)
 {
     evhtp_t          * htp;
-    evhtp_ssl_cfg_t  * cfg;
     evhtp_ssl_data_t * sid;
     unsigned int       slen;
 
     htp = (evhtp_t *)SSL_CTX_get_app_data(ctx);
-    cfg = htp->ssl_cfg;
     sid = (evhtp_ssl_data_t *)SSL_SESSION_get_id(sess, &slen);
 
-    if (cfg->scache_del) {
-        (cfg->scache_del)(htp, sid, slen);
+    if (htp->ssl_cfg.scache_del) {
+        (htp->ssl_cfg.scache_del)(htp, sid, slen);
     }
 }
 
@@ -2930,7 +2928,6 @@ static int
 htp__ssl_add_scache_ent_(evhtp_ssl_t * ssl, evhtp_ssl_sess_t * sess)
 {
     evhtp_connection_t * connection;
-    evhtp_ssl_cfg_t    * cfg;
     evhtp_ssl_data_t   * sid;
     unsigned int         slen;
 
@@ -2939,13 +2936,12 @@ htp__ssl_add_scache_ent_(evhtp_ssl_t * ssl, evhtp_ssl_sess_t * sess)
         return 0;     /* We cannot get the ssl_cfg */
     }
 
-    cfg = connection->htp->ssl_cfg;
     sid = (evhtp_ssl_data_t *)SSL_SESSION_get_id(sess, &slen);
 
-    SSL_set_timeout(sess, cfg->scache_timeout);
+    SSL_set_timeout(sess, connection->htp->ssl_cfg.scache_timeout);
 
-    if (cfg->scache_add) {
-        return (cfg->scache_add)(connection, sid, slen, sess);
+    if (connection->htp->ssl_cfg.scache_add) {
+        return (connection->htp->ssl_cfg.scache_add)(connection, sid, slen, sess);
     }
 
     return 0;
@@ -2955,7 +2951,6 @@ static evhtp_ssl_sess_t *
 htp__ssl_get_scache_ent_(evhtp_ssl_t * ssl, evhtp_ssl_data_t * sid, int sid_len, int * copy)
 {
     evhtp_connection_t * connection;
-    evhtp_ssl_cfg_t    * cfg;
     evhtp_ssl_sess_t   * sess;
 
     connection = (evhtp_connection_t * )SSL_get_app_data(ssl);
@@ -2964,11 +2959,10 @@ htp__ssl_get_scache_ent_(evhtp_ssl_t * ssl, evhtp_ssl_data_t * sid, int sid_len,
         return NULL;     /* We have no way of getting ssl_cfg */
     }
 
-    cfg  = connection->htp->ssl_cfg;
     sess = NULL;
 
-    if (cfg->scache_get) {
-        sess = (cfg->scache_get)(connection, sid, sid_len);
+    if (connection->htp->ssl_cfg.scache_get) {
+        sess = (connection->htp->ssl_cfg.scache_get)(connection, sid, sid_len);
     }
 
     *copy = 0;
@@ -4772,7 +4766,7 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
     long          cache_mode;
     unsigned char c;
 
-    if (cfg == NULL || htp == NULL || cfg->pemfile == NULL) {
+    if (cfg == NULL || htp == NULL || (cfg->pemfile == NULL && cfg->memcert == NULL)) {
         return -1;
     }
 
@@ -4813,14 +4807,19 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
     sk_SSL_COMP_zero(comp_methods);
 #endif
 
-    htp->ssl_cfg = cfg;
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     htp->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+    evhtp_alloc_assert(htp->ssl_ctx);
 #else
     htp->ssl_ctx = SSL_CTX_new(TLS_server_method());
+    evhtp_alloc_assert(htp->ssl_ctx);
+
+    if (cfg->min_proto_version)
+        SSL_CTX_set_min_proto_version(htp->ssl_ctx, cfg->min_proto_version);
+    if (cfg->max_proto_version)
+        SSL_CTX_set_max_proto_version(htp->ssl_ctx, cfg->max_proto_version);
 #endif
 
-    evhtp_alloc_assert(htp->ssl_ctx);
 
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L
     SSL_CTX_set_options(htp->ssl_ctx, SSL_MODE_RELEASE_BUFFERS | SSL_OP_NO_COMPRESSION);
@@ -4907,7 +4906,17 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
             break;
     }         /* switch */
 
-    SSL_CTX_use_certificate_chain_file(htp->ssl_ctx, cfg->pemfile);
+    if (cfg->memcert) {
+        SSL_CTX_use_certificate(htp->ssl_ctx, cfg->memcert);
+        if (cfg->memca) {
+            for (int i = 0; i < sk_X509_num(cfg->memca); i++) {
+                X509 *k = sk_X509_value(cfg->memca, i);
+                SSL_CTX_add1_chain_cert(htp->ssl_ctx, k);
+            }
+        }
+    } else {
+        SSL_CTX_use_certificate_chain_file(htp->ssl_ctx, cfg->pemfile);
+    }
 
     char * const key = cfg->privfile ?  cfg->privfile : cfg->pemfile;
 
@@ -4922,8 +4931,17 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 
         /*cleanup */
         EVP_PKEY_free(pkey);
+    } else if (cfg->memprivkey) {
+        SSL_CTX_use_PrivateKey(htp->ssl_ctx, cfg->memprivkey);
     } else {
         SSL_CTX_use_PrivateKey_file(htp->ssl_ctx, key, SSL_FILETYPE_PEM);
+    }
+
+    if (SSL_CTX_check_private_key(htp->ssl_ctx) != 1) {
+        /* This should be everywhere tho */
+        SSL_CTX_free(htp->ssl_ctx);
+        htp->ssl_ctx = NULL;
+        return -1;
     }
 
     SSL_CTX_set_session_id_context(htp->ssl_ctx,
