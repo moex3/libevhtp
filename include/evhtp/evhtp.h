@@ -809,6 +809,7 @@ EVHTP_EXPORT int evhtp_callback_unset_hook(evhtp_callback_t * callback, evhtp_ho
  * @brief bind to a socket, optionally with specific protocol support
  *        formatting. The addr can be defined as one of the following:
  *          ipv6:<ipv6addr> for binding to an IPv6 address.
+ *          ipv64:<ipv6addr> for binding to an IPv6 address and accepting IPv6 mapped IPv4 addresses.
  *          unix:<named pipe> for binding to a unix named socket
  *          ipv4:<ipv4addr> for binding to an ipv4 address
  *        Otherwise the addr is assumed to be ipv4.
@@ -854,11 +855,13 @@ EVHTP_EXPORT int evhtp_accept_socket(evhtp_t * htp, evutil_socket_t sock, int ba
  * @param sa - ptr to sockaddr structure
  * @param sin_len - size of sockaddr structure
  * @param backlog - backlog flag
+ * @param bind_flags - flags to bind with. EVHTP_BIND_
  *
  * @return 0 on success, -1 on fail
  */
 EVHTP_EXPORT int evhtp_bind_sockaddr(evhtp_t * htp, struct sockaddr *,
-    size_t sin_len, int backlog);
+    size_t sin_len, int backlog, int bind_flags);
+#define EVHTP_BIND_IPV6MAPPED (1 << 1)
 
 
 /**

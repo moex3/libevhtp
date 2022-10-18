@@ -4049,10 +4049,10 @@ int
 evhtp_bind_sockaddr(evhtp_t         * htp,
                     struct sockaddr * sa,
                     size_t            sin_len,
-                    int               backlog)
+                    int               backlog,
+                    int               bind_flags)
 {
     evutil_socket_t fd    = -1;
-    int             on    = 1;
     int             error = 1;
 
     if (htp == NULL) {
@@ -4079,7 +4079,8 @@ evhtp_bind_sockaddr(evhtp_t         * htp,
         }
 
         if (sa->sa_family == AF_INET6) {
-            if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on)) == -1) {
+            int set = !(bind_flags & EVHTP_BIND_IPV6MAPPED);
+            if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &set, sizeof(set)) == -1) {
                 break;
             }
         }
@@ -4122,9 +4123,15 @@ evhtp_bind_socket(evhtp_t * htp, const char * baddr, uint16_t port, int backlog)
     struct sockaddr_in6 sin6   = { 0 };
     struct sockaddr_in  sin    = { 0 };
     size_t              sin_len;
+    int                 bind_flags = 0;
 
-    if (!strncmp(baddr, "ipv6:", 5)) {
-        baddr           += 5;
+    if (!strncmp(baddr, "ipv6:", 5) || !strncmp(baddr, "ipv64:", 6)) {
+        if (!strncmp(baddr, "ipv64:", 6)) {
+            baddr           += 6;
+            bind_flags      |= EVHTP_BIND_IPV6MAPPED;
+        } else {
+            baddr           += 5;
+        }
         sin_len          = sizeof(struct sockaddr_in6);
         sin6.sin6_port   = htons(port);
         sin6.sin6_family = AF_INET6;
@@ -4162,7 +4169,7 @@ evhtp_bind_socket(evhtp_t * htp, const char * baddr, uint16_t port, int backlog)
         sa = (struct sockaddr *)&sin;
     }
 
-    return evhtp_bind_sockaddr(htp, sa, sin_len, backlog);
+    return evhtp_bind_sockaddr(htp, sa, sin_len, backlog, bind_flags);
 }         /* evhtp_bind_socket */
 
 void
@@ -5483,9 +5490,15 @@ evhtp_connection_ssl_new(struct event_base * evbase,
                          uint16_t            port,
                          evhtp_ssl_ctx_t   * ctx)
 {
-    evhtp_connection_t * conn;
-    struct sockaddr_in   sin;
-    const char         * errstr;
+    evhtp_connection_t      * conn;
+    struct sockaddr_storage   sin;
+    union {
+        struct sockaddr_in      * in4;
+        struct sockaddr_in6     * in6;
+    } s;
+    size_t slen;
+    const char              * errstr;
+    s.in6 = (struct sockaddr_in6*)&sin;
 
     if (evbase == NULL) {
         return NULL;
@@ -5521,13 +5534,23 @@ evhtp_connection_ssl_new(struct event_base * evbase,
             htp__connection_eventcb_, conn);
 
 
-        sin.sin_family      = AF_INET;
-        sin.sin_addr.s_addr = inet_addr(addr);
-        sin.sin_port        = htons(port);
+        if (inet_pton(AF_INET, addr, &s.in4->sin_addr)) {
+            s.in4->sin_family = AF_INET;
+            s.in4->sin_port   = htons(port);
+            slen             = sizeof(*s.in4);
+        } else if (inet_pton(AF_INET6, addr, &s.in6->sin6_addr)) {
+            s.in6->sin6_family = AF_INET6;
+            s.in6->sin6_port   = htons(port);
+            slen              = sizeof(*s.in6);
+        } else {
+            /* Not a valid IP. */
+            errstr = "unknown ip address";
+            break;
+        }
 
         if (ssl_sk_connect_(conn->bev,
                             (struct sockaddr *)&sin,
-                sizeof(sin)) == -1) {
+                slen) == -1) {
             errstr = "sk_connect_ failure";
             break;
         }
