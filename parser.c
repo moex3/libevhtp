@@ -1161,7 +1161,7 @@ htparser_run(htparser * p, htparse_hooks * hooks, const char * data, size_t len)
 
                 res = 0;
 
-                if (usual[ch >> 5] & (1 << (ch & 0x1f)))
+                if (usual[ch >> 5] & (1u << (ch & 0x1f)))
                 {
                     HTP_SET_BUF(ch);
 
@@ -1233,7 +1233,7 @@ htparser_run(htparser * p, htparse_hooks * hooks, const char * data, size_t len)
                 do {
                     log_debug("[%p] s_check_uri", p);
 
-                    if (usual[ch >> 5] & (1 << (ch & 0x1f))) {
+                    if (usual[ch >> 5] & (1u << (ch & 0x1f))) {
                         HTP_SET_BUF(ch);
                     } else {
                         break;
@@ -1317,7 +1317,7 @@ htparser_run(htparser * p, htparse_hooks * hooks, const char * data, size_t len)
                 res = 0;
 
                 do {
-                    if (usual[ch >> 5] & (1 << (ch & 0x1f))) {
+                    if (usual[ch >> 5] & (1u << (ch & 0x1f))) {
                         HTP_SET_BUF(ch);
                     } else {
                         break;
