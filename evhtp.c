@@ -5490,15 +5490,18 @@ evhtp_connection_ssl_new(struct event_base * evbase,
                          uint16_t            port,
                          evhtp_ssl_ctx_t   * ctx)
 {
+    return evhtp_connection_ssl_new_dns(evbase, NULL, addr, port, ctx);
+}
+
+evhtp_connection_t *
+evhtp_connection_ssl_new_dns(struct event_base * evbase,
+                             struct evdns_base * dns_base,
+                             const char        * addr,
+                             uint16_t            port,
+                             evhtp_ssl_ctx_t   * ctx)
+{
     evhtp_connection_t      * conn;
-    struct sockaddr_storage   sin;
-    union {
-        struct sockaddr_in      * in4;
-        struct sockaddr_in6     * in6;
-    } s;
-    size_t slen;
     const char              * errstr;
-    s.in6 = (struct sockaddr_in6*)&sin;
 
     if (evbase == NULL) {
         return NULL;
@@ -5533,26 +5536,41 @@ evhtp_connection_ssl_new(struct event_base * evbase,
         bufferevent_setcb(conn->bev, NULL, NULL,
             htp__connection_eventcb_, conn);
 
-
-        if (inet_pton(AF_INET, addr, &s.in4->sin_addr)) {
-            s.in4->sin_family = AF_INET;
-            s.in4->sin_port   = htons(port);
-            slen             = sizeof(*s.in4);
-        } else if (inet_pton(AF_INET6, addr, &s.in6->sin6_addr)) {
-            s.in6->sin6_family = AF_INET6;
-            s.in6->sin6_port   = htons(port);
-            slen              = sizeof(*s.in6);
+        if (dns_base != NULL) {
+            if (bufferevent_socket_connect_hostname(conn->bev, dns_base,
+                    AF_UNSPEC, addr, port) != 0) {
+                errstr = "unable to connect with hostname";
+                break;
+            }
         } else {
-            /* Not a valid IP. */
-            errstr = "unknown ip address";
-            break;
-        }
+            struct sockaddr_storage   sin;
+            union {
+                struct sockaddr_in      * in4;
+                struct sockaddr_in6     * in6;
+            } s;
+            size_t slen;
+            s.in6 = (struct sockaddr_in6*)&sin;
 
-        if (ssl_sk_connect_(conn->bev,
-                            (struct sockaddr *)&sin,
-                slen) == -1) {
-            errstr = "sk_connect_ failure";
-            break;
+            if (inet_pton(AF_INET, addr, &s.in4->sin_addr)) {
+                s.in4->sin_family = AF_INET;
+                s.in4->sin_port   = htons(port);
+                slen              = sizeof(*s.in4);
+            } else if (inet_pton(AF_INET6, addr, &s.in6->sin6_addr)) {
+                s.in6->sin6_family = AF_INET6;
+                s.in6->sin6_port   = htons(port);
+                slen               = sizeof(*s.in6);
+            } else {
+                /* Not a valid IP. */
+                errstr = "unknown ip address";
+                break;
+            }
+
+            if (ssl_sk_connect_(conn->bev,
+                                (struct sockaddr *)&sin,
+                    slen) == -1) {
+                errstr = "sk_connect_ failure";
+                break;
+            }
         }
     } while (0);
 
