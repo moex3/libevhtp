@@ -5444,21 +5444,23 @@ evhtp_connection_new_dns(struct event_base * evbase, struct evdns_base * dns_bas
         err = bufferevent_socket_connect_hostname(conn->bev, dns_base,
             AF_UNSPEC, addr, port);
     } else {
-        struct sockaddr_in  sin4;
-        struct sockaddr_in6 sin6;
-        struct sockaddr   * sin;
-        int                 salen;
+        struct sockaddr_storage       sin = {0};
+        union {
+            struct sockaddr_in      * in4;
+            struct sockaddr_in6     * in6;
+            void                    * ptr;
+        } s;
+        int                           salen;
+        s.ptr = &sin;
 
-        if (inet_pton(AF_INET, addr, &sin4.sin_addr)) {
-            sin4.sin_family = AF_INET;
-            sin4.sin_port   = htons(port);
-            sin = (struct sockaddr *)&sin4;
-            salen           = sizeof(sin4);
-        } else if (inet_pton(AF_INET6, addr, &sin6.sin6_addr)) {
-            sin6.sin6_family = AF_INET6;
-            sin6.sin6_port   = htons(port);
-            sin = (struct sockaddr *)&sin6;
-            salen = sizeof(sin6);
+        if (inet_pton(AF_INET, addr, &s.in4->sin_addr)) {
+            s.in4->sin_family = AF_INET;
+            s.in4->sin_port   = htons(port);
+            salen             = sizeof(*s.in4);
+        } else if (inet_pton(AF_INET6, addr, &s.in6->sin6_addr)) {
+            s.in6->sin6_family = AF_INET6;
+            s.in6->sin6_port   = htons(port);
+            salen              = sizeof(*s.in6);
         } else {
             /* Not a valid IP. */
             evhtp_safe_free(conn, evhtp_connection_free);
@@ -5466,7 +5468,7 @@ evhtp_connection_new_dns(struct event_base * evbase, struct evdns_base * dns_bas
             return NULL;
         }
 
-        err = bufferevent_socket_connect(conn->bev, sin, salen);
+        err = bufferevent_socket_connect(conn->bev, s.ptr, salen);
     }
 
     /* not needed since any of the bufferevent errors will go straight to
