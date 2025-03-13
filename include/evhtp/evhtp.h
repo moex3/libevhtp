@@ -30,6 +30,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/decoder.h>
 #endif
 
 #ifdef __cplusplus

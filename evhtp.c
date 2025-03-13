@@ -2492,14 +2492,12 @@ htp__connection_eventcb_(struct bufferevent * bev, short events, void * arg)
         unsigned long sslerr;
 
         while ((sslerr = bufferevent_get_openssl_error(bev))) {
-            log_error("SSL ERROR %lu:%i:%s:%i:%s:%i:%s",
+            log_error("SSL ERROR %lu:%i:%s:%i:%s",
                 sslerr,
                 ERR_GET_REASON(sslerr),
                 ERR_reason_error_string(sslerr),
                 ERR_GET_LIB(sslerr),
-                ERR_lib_error_string(sslerr),
-                ERR_GET_FUNC(sslerr),
-                ERR_func_error_string(sslerr));
+                ERR_lib_error_string(sslerr));
         }
 #endif
 
@@ -4837,23 +4835,9 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 
 #ifndef OPENSSL_NO_ECDH
     if (cfg->named_curve != NULL) {
-        EC_KEY * ecdh = NULL;
-        int      nid  = 0;
-
-        nid = OBJ_sn2nid(cfg->named_curve);
-
-        if (nid == 0) {
-            log_error("ECDH initialization failed: unknown curve %s", cfg->named_curve);
+        if (SSL_CTX_set1_groups_list(htp->ssl_ctx, cfg->named_curve) == 0) {
+            log_error("Curve SSL CTX initialization failed for %s", cfg->named_curve);
         }
-
-        ecdh = EC_KEY_new_by_curve_name(nid);
-
-        if (ecdh == NULL) {
-            log_error("ECDH initialization failed for curve %s", cfg->named_curve);
-        }
-
-        SSL_CTX_set_tmp_ecdh(htp->ssl_ctx, ecdh);
-        EC_KEY_free(ecdh);
     }
 
 #endif      /* OPENSSL_NO_ECDH */
@@ -4865,14 +4849,22 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
         fh = fopen(cfg->dhparams, "r");
 
         if (fh != NULL) {
-            dh = PEM_read_DHparams(fh, NULL, NULL, NULL);
-            if (dh != NULL) {
-                SSL_CTX_set_tmp_dh(htp->ssl_ctx, dh);
-                DH_free(dh);
-            } else {
-                log_error("DH initialization failed: unable to parse file %s", cfg->dhparams);
-            }
+            OSSL_DECODER_CTX * odec;
+            EVP_PKEY         * pkey = NULL;
 
+            odec = OSSL_DECODER_CTX_new_for_pkey(&pkey, NULL, NULL, NULL, 0, NULL, NULL);
+            if (odec != NULL) {
+                if (OSSL_DECODER_from_fp(odec, fh) == 1) {
+                    if (SSL_CTX_set0_tmp_dh_pkey(htp->ssl_ctx, pkey) == 0) {
+                        log_error("Failed to set dh key from file %s", cfg->dhparams);
+                    }
+                } else {
+                    log_error("Failed to read from file with OSSL_DECODER %s", cfg->dhparams);
+                }
+                OSSL_DECODER_CTX_free(odec);
+            } else {
+                log_error("OSSL DECODER CTX initialization failed");
+            }
             fclose(fh);
         } else {
             log_error("DH initialization failed: unable to open file %s", cfg->dhparams);
