@@ -4766,6 +4766,16 @@ evhtp_ssl_use_threads(void)
 #endif
 
 int
+evhtp_ssl_replace(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
+{
+    if (htp->ssl_ctx) {
+        evhtp_safe_free(htp->ssl_ctx, SSL_CTX_free);
+    }
+
+    return evhtp_ssl_init(htp, cfg);
+}
+
+int
 evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 {
     long          cache_mode;
