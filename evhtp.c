@@ -4819,10 +4819,16 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
     htp->ssl_ctx = SSL_CTX_new(TLS_server_method());
     evhtp_alloc_assert(htp->ssl_ctx);
 
-    if (cfg->min_proto_version)
-        SSL_CTX_set_min_proto_version(htp->ssl_ctx, cfg->min_proto_version);
-    if (cfg->max_proto_version)
-        SSL_CTX_set_max_proto_version(htp->ssl_ctx, cfg->max_proto_version);
+    if (cfg->min_proto_version) {
+        if (SSL_CTX_set_min_proto_version(htp->ssl_ctx, cfg->min_proto_version) == 0) {
+            log_error("Failed to set minimum protocol version");
+        }
+    }
+    if (cfg->max_proto_version) {
+        if (SSL_CTX_set_max_proto_version(htp->ssl_ctx, cfg->max_proto_version) == 0) {
+            log_error("Failed to set maximum protocol version");
+        }
+    }
 #endif
 
 
