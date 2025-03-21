@@ -4776,13 +4776,24 @@ evhtp_ssl_replace(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 }
 
 int
-evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
+evhtp_ssl_replace_ssl_ctx(evhtp_t * htp, SSL_CTX * ssl_ctx)
 {
-    long          cache_mode;
-    unsigned char c;
+    if (htp->ssl_ctx) {
+        evhtp_safe_free(htp->ssl_ctx, SSL_CTX_free);
+    }
 
-    if (cfg == NULL || htp == NULL || (cfg->pemfile == NULL && cfg->memcert == NULL)) {
-        return -1;
+    return evhtp_ssl_init_with_ctx(htp, ssl_ctx);
+}
+
+SSL_CTX *
+evhtp_ssl_ctx_new(evhtp_ssl_cfg_t * cfg)
+{
+    long            cache_mode;
+    unsigned char   c;
+    SSL_CTX       * ssl_ctx;
+
+    if (cfg == NULL || (cfg->pemfile == NULL && cfg->memcert == NULL)) {
+        return NULL;
     }
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -4795,7 +4806,7 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
     /*
      * if (OPENSSL_init_ssl(OPENSSL_INIT_SSL_DEFAULT, NULL) == 0) {
      *  log_error("OPENSSL_init_ssl");
-     *  return -1;
+     *  return NULL;
      * }
      *
      * if (OPENSSL_init_crypto(
@@ -4803,18 +4814,18 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
      *      OPENSSL_INIT_ADD_ALL_DIGESTS |
      *      OPENSSL_INIT_LOAD_CONFIG, NULL) == 0) {
      *  log_error("OPENSSL_init_crypto");
-     *  return -1;
+     *  return NULL;
      * }
      */
 #endif
     if (RAND_poll() != 1) {
         log_error("RAND_poll");
-        return -1;
+        return NULL;
     }
 
     if (RAND_bytes(&c, 1) != 1) {
         log_error("RAND_bytes");
-        return -1;
+        return NULL;
     }
 
 #if OPENSSL_VERSION_NUMBER < 0x10000000L
@@ -4823,19 +4834,19 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 #endif
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-    htp->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
-    evhtp_alloc_assert(htp->ssl_ctx);
+    ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+    evhtp_alloc_assert(ssl_ctx);
 #else
-    htp->ssl_ctx = SSL_CTX_new(TLS_server_method());
-    evhtp_alloc_assert(htp->ssl_ctx);
+    ssl_ctx = SSL_CTX_new(TLS_server_method());
+    evhtp_alloc_assert(ssl_ctx);
 
     if (cfg->min_proto_version) {
-        if (SSL_CTX_set_min_proto_version(htp->ssl_ctx, cfg->min_proto_version) == 0) {
+        if (SSL_CTX_set_min_proto_version(ssl_ctx, cfg->min_proto_version) == 0) {
             log_error("Failed to set minimum protocol version");
         }
     }
     if (cfg->max_proto_version) {
-        if (SSL_CTX_set_max_proto_version(htp->ssl_ctx, cfg->max_proto_version) == 0) {
+        if (SSL_CTX_set_max_proto_version(ssl_ctx, cfg->max_proto_version) == 0) {
             log_error("Failed to set maximum protocol version");
         }
     }
@@ -4843,15 +4854,15 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 
 
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L
-    SSL_CTX_set_options(htp->ssl_ctx, SSL_MODE_RELEASE_BUFFERS | SSL_OP_NO_COMPRESSION);
-    SSL_CTX_set_timeout(htp->ssl_ctx, cfg->ssl_ctx_timeout);
+    SSL_CTX_set_options(ssl_ctx, SSL_MODE_RELEASE_BUFFERS | SSL_OP_NO_COMPRESSION);
+    SSL_CTX_set_timeout(ssl_ctx, cfg->ssl_ctx_timeout);
 #endif
 
-    SSL_CTX_set_options(htp->ssl_ctx, cfg->ssl_opts);
+    SSL_CTX_set_options(ssl_ctx, cfg->ssl_opts);
 
 #ifndef OPENSSL_NO_ECDH
     if (cfg->named_curve != NULL) {
-        if (SSL_CTX_set1_groups_list(htp->ssl_ctx, cfg->named_curve) == 0) {
+        if (SSL_CTX_set1_groups_list(ssl_ctx, cfg->named_curve) == 0) {
             log_error("Curve SSL CTX initialization failed for %s", cfg->named_curve);
         }
     }
@@ -4871,7 +4882,7 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
             odec = OSSL_DECODER_CTX_new_for_pkey(&pkey, NULL, NULL, NULL, 0, NULL, NULL);
             if (odec != NULL) {
                 if (OSSL_DECODER_from_fp(odec, fh) == 1) {
-                    if (SSL_CTX_set0_tmp_dh_pkey(htp->ssl_ctx, pkey) == 0) {
+                    if (SSL_CTX_set0_tmp_dh_pkey(ssl_ctx, pkey) == 0) {
                         log_error("Failed to set dh key from file %s", cfg->dhparams);
                     }
                 } else {
@@ -4890,26 +4901,26 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
 #endif      /* OPENSSL_NO_DH */
 
     if (cfg->ciphers != NULL) {
-        if (SSL_CTX_set_cipher_list(htp->ssl_ctx, cfg->ciphers) == 0) {
+        if (SSL_CTX_set_cipher_list(ssl_ctx, cfg->ciphers) == 0) {
             log_error("set_cipher_list");
-            return -1;
+            return NULL;
         }
     }
 
-    SSL_CTX_load_verify_locations(htp->ssl_ctx, cfg->cafile, cfg->capath);
-    X509_STORE_set_flags(SSL_CTX_get_cert_store(htp->ssl_ctx), cfg->store_flags);
-    SSL_CTX_set_verify(htp->ssl_ctx, cfg->verify_peer, cfg->x509_verify_cb);
+    SSL_CTX_load_verify_locations(ssl_ctx, cfg->cafile, cfg->capath);
+    X509_STORE_set_flags(SSL_CTX_get_cert_store(ssl_ctx), cfg->store_flags);
+    SSL_CTX_set_verify(ssl_ctx, cfg->verify_peer, cfg->x509_verify_cb);
 
     if (cfg->x509_chk_issued_cb != NULL) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-        htp->ssl_ctx->cert_store->check_issued = cfg->x509_chk_issued_cb;
+        ssl_ctx->cert_store->check_issued = cfg->x509_chk_issued_cb;
 #else
-        X509_STORE_set_check_issued(SSL_CTX_get_cert_store(htp->ssl_ctx), cfg->x509_chk_issued_cb);
+        X509_STORE_set_check_issued(SSL_CTX_get_cert_store(ssl_ctx), cfg->x509_chk_issued_cb);
 #endif
     }
 
     if (cfg->verify_depth) {
-        SSL_CTX_set_verify_depth(htp->ssl_ctx, cfg->verify_depth);
+        SSL_CTX_set_verify_depth(ssl_ctx, cfg->verify_depth);
     }
 
     switch (cfg->scache_type) {
@@ -4922,15 +4933,15 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
     }         /* switch */
 
     if (cfg->memcert) {
-        SSL_CTX_use_certificate(htp->ssl_ctx, cfg->memcert);
+        SSL_CTX_use_certificate(ssl_ctx, cfg->memcert);
         if (cfg->memca) {
             for (int i = 0; i < sk_X509_num(cfg->memca); i++) {
                 X509 *k = sk_X509_value(cfg->memca, i);
-                SSL_CTX_add1_chain_cert(htp->ssl_ctx, k);
+                SSL_CTX_add1_chain_cert(ssl_ctx, k);
             }
         }
     } else {
-        SSL_CTX_use_certificate_chain_file(htp->ssl_ctx, cfg->pemfile);
+        SSL_CTX_use_certificate_chain_file(ssl_ctx, cfg->pemfile);
     }
 
     char * const key = cfg->privfile ?  cfg->privfile : cfg->pemfile;
@@ -4939,48 +4950,81 @@ evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
         EVP_PKEY * pkey = cfg->decrypt_cb(key);
 
         if (pkey == NULL) {
-            return -1;
+            return NULL;
         }
 
-        SSL_CTX_use_PrivateKey(htp->ssl_ctx, pkey);
+        SSL_CTX_use_PrivateKey(ssl_ctx, pkey);
 
         /*cleanup */
         EVP_PKEY_free(pkey);
     } else if (cfg->memprivkey) {
-        SSL_CTX_use_PrivateKey(htp->ssl_ctx, cfg->memprivkey);
+        SSL_CTX_use_PrivateKey(ssl_ctx, cfg->memprivkey);
     } else {
-        SSL_CTX_use_PrivateKey_file(htp->ssl_ctx, key, SSL_FILETYPE_PEM);
+        SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
     }
 
-    if (SSL_CTX_check_private_key(htp->ssl_ctx) != 1) {
+    if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
         /* This should be everywhere tho */
-        SSL_CTX_free(htp->ssl_ctx);
-        htp->ssl_ctx = NULL;
-        return -1;
+        SSL_CTX_free(ssl_ctx);
+        return NULL;
     }
 
-    SSL_CTX_set_session_id_context(htp->ssl_ctx,
+    SSL_CTX_set_session_id_context(ssl_ctx,
                                    (void *)&session_id_context,
         sizeof(session_id_context));
 
-    SSL_CTX_set_app_data(htp->ssl_ctx, htp);
-    SSL_CTX_set_session_cache_mode(htp->ssl_ctx, cache_mode);
+    SSL_CTX_set_session_cache_mode(ssl_ctx, cache_mode);
 
     if (cache_mode != SSL_SESS_CACHE_OFF) {
-        SSL_CTX_sess_set_cache_size(htp->ssl_ctx,
+        SSL_CTX_sess_set_cache_size(ssl_ctx,
             cfg->scache_size ? cfg->scache_size : 1024);
 
         if (cfg->scache_type == evhtp_ssl_scache_type_builtin ||
             cfg->scache_type == evhtp_ssl_scache_type_user) {
-            SSL_CTX_sess_set_new_cb(htp->ssl_ctx, htp__ssl_add_scache_ent_);
-            SSL_CTX_sess_set_get_cb(htp->ssl_ctx, htp__ssl_get_scache_ent_);
-            SSL_CTX_sess_set_remove_cb(htp->ssl_ctx, htp__ssl_delete_scache_ent_);
-
-            if (cfg->scache_init) {
-                cfg->args = (cfg->scache_init)(htp);
-            }
+            SSL_CTX_sess_set_new_cb(ssl_ctx, htp__ssl_add_scache_ent_);
+            SSL_CTX_sess_set_get_cb(ssl_ctx, htp__ssl_get_scache_ent_);
+            SSL_CTX_sess_set_remove_cb(ssl_ctx, htp__ssl_delete_scache_ent_);
         }
     }
+
+    return ssl_ctx;
+}
+
+int
+evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * cfg)
+{
+    SSL_CTX * ssl_ctx;
+
+    if (htp == NULL) {
+        return -1;
+    }
+
+    ssl_ctx = evhtp_ssl_ctx_new(cfg);
+    if (ssl_ctx == NULL)
+        return -1;
+
+    htp->ssl_ctx = ssl_ctx;
+    SSL_CTX_set_app_data(ssl_ctx, htp);
+
+    if (cfg->scache_type != SSL_SESS_CACHE_OFF &&
+           (cfg->scache_type == evhtp_ssl_scache_type_builtin ||
+           cfg->scache_type == evhtp_ssl_scache_type_user) &&
+           cfg->scache_init) {
+        cfg->args = (cfg->scache_init)(htp);
+    }
+
+    return 0;
+}
+
+int
+evhtp_ssl_init_with_ctx(evhtp_t * htp, SSL_CTX * ssl_ctx)
+{
+    if (ssl_ctx == NULL || htp == NULL)
+        return -1;
+
+    SSL_CTX_up_ref(ssl_ctx);
+    SSL_CTX_set_app_data(ssl_ctx, htp);
+    htp->ssl_ctx = ssl_ctx;
 
     return 0;
 }         /* evhtp_use_ssl */

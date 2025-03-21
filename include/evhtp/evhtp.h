@@ -616,7 +616,10 @@ EVHTP_EXPORT void evhtp_set_bev_flags(evhtp_t * htp, int flags);
 #ifndef EVHTP_DISABLE_SSL
 EVHTP_EXPORT int evhtp_ssl_use_threads(void);
 EVHTP_EXPORT int evhtp_ssl_replace(evhtp_t * htp, evhtp_ssl_cfg_t * ssl_cfg);
+EVHTP_EXPORT int evhtp_ssl_replace_ssl_ctx(evhtp_t * htp, SSL_CTX * ssl_ctx);
 EVHTP_EXPORT int evhtp_ssl_init(evhtp_t * htp, evhtp_ssl_cfg_t * ssl_cfg);
+EVHTP_EXPORT int evhtp_ssl_init_with_ctx(evhtp_t * htp, SSL_CTX * ssl_ctx);
+EVHTP_EXPORT SSL_CTX * evhtp_ssl_ctx_new(evhtp_ssl_cfg_t * cfg);
 #endif
 
 
