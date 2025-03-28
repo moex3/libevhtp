@@ -5462,12 +5462,19 @@ evhtp_free(evhtp_t * evhtp)
 evhtp_connection_t *
 evhtp_connection_new(struct event_base * evbase, const char * addr, uint16_t port)
 {
-    return evhtp_connection_new_dns(evbase, NULL, addr, port);
+    return evhtp_connection_new_dns_family(evbase, NULL, AF_UNSPEC, addr, port);
 }
 
 evhtp_connection_t *
 evhtp_connection_new_dns(struct event_base * evbase, struct evdns_base * dns_base,
                          const char * addr, uint16_t port)
+{
+    return evhtp_connection_new_dns_family(evbase, dns_base, AF_UNSPEC, addr, port);
+}
+
+evhtp_connection_t *
+evhtp_connection_new_dns_family(struct event_base * evbase, struct evdns_base * dns_base,
+                         int family, const char * addr, uint16_t port)
 {
     evhtp_connection_t * conn;
     int                  err;
@@ -5494,7 +5501,7 @@ evhtp_connection_new_dns(struct event_base * evbase, struct evdns_base * dns_bas
 
     if (dns_base != NULL) {
         err = bufferevent_socket_connect_hostname(conn->bev, dns_base,
-            AF_UNSPEC, addr, port);
+            family, addr, port);
     } else {
         struct sockaddr_storage       sin = {0};
         union {
@@ -5554,6 +5561,17 @@ evhtp_connection_ssl_new_dns(struct event_base * evbase,
                              uint16_t            port,
                              evhtp_ssl_ctx_t   * ctx)
 {
+    return evhtp_connection_ssl_new_dns_family(evbase, dns_base, AF_UNSPEC, addr, port, ctx);
+}
+
+evhtp_connection_t *
+evhtp_connection_ssl_new_dns_family(struct event_base * evbase,
+                                    struct evdns_base * dns_base,
+                                    int                 family,
+                                    const char        * addr,
+                                    uint16_t            port,
+                                    evhtp_ssl_ctx_t   * ctx)
+{
     evhtp_connection_t      * conn;
     const char              * errstr;
 
@@ -5592,7 +5610,7 @@ evhtp_connection_ssl_new_dns(struct event_base * evbase,
 
         if (dns_base != NULL) {
             if (bufferevent_socket_connect_hostname(conn->bev, dns_base,
-                    AF_UNSPEC, addr, port) != 0) {
+                    family, addr, port) != 0) {
                 errstr = "unable to connect with hostname";
                 break;
             }
