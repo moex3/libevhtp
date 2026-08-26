@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -13,7 +13,6 @@ include(CheckFunctionExists)
 include(CheckIncludeFiles)
 include(CheckTypeSize)
 include(CheckCCompilerFlag)
-include(TestBigEndian)
 
 check_function_exists(strndup HAVE_STRNDUP)
 check_function_exists(strnlen HAVE_STRNLEN)
@@ -39,8 +38,6 @@ check_include_files(sys/types.h HAVE_SYS_TYPES_H)
 check_type_size("int" SIZEOF_INT)
 check_type_size("long" SIZEOF_LONG)
 check_type_size("short" SIZEOF_SHORT)
-
-test_big_endian(HOST_BIG_ENDIAN)
 
 check_c_compiler_flag(-std=c99 has_c99)
 
@@ -162,8 +159,10 @@ if(NOT HAVE_SYS_UN)
     target_compile_definitions(evhtp PUBLIC NO_SYS_UN)
 endif()
 
-if(HOST_BIG_ENDIAN)
+if(CMAKE_C_BYTE_ORDER STREQUAL "BIG_ENDIAN")
     target_compile_definitions(evhtp PUBLIC HOST_BIG_ENDIAN)
+elseif(NOT (CMAKE_C_BYTE_ORDER STREQUAL "LITTLE_ENDIAN"))
+    message(WARNING "Endianness could not be determined.")
 endif()
 
 # Test 32/64 bits
